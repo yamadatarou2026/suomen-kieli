@@ -683,8 +683,12 @@ async function startQuiz() {
   }
 
   try {
-    const clean = result.text.trim()
+    let clean = result.text.trim()
       .replace(/^```json\s*/,'').replace(/\s*```$/,'').trim();
+    // JSON文字列内の生の改行をエスケープして安全にパース
+    clean = clean.replace(/"[^"]*"/g, m =>
+      m.replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/\t/g,'\\t')
+    );
     quizData = JSON.parse(clean);
     renderQuiz();
   } catch {
