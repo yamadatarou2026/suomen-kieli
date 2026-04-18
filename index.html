@@ -479,6 +479,8 @@ let currentTab    = 'explain';
 let quizData      = null;
 let quizAnswered  = false;
 const ctxCache    = {};  // トピック別教材キャッシュ（ページ読み込み中は再取得しない）
+let   nextQuizData = null;  // 次の問題を先読みキャッシュ
+let   prefetching  = false;
 
 // ═══════════════════════════════════════════════════════════
 //  SYSTEM PROMPT
@@ -638,21 +640,26 @@ async function loadExplain() {
 // ═══════════════════════════════════════════════════════════
 //  QUIZ MODE
 // ═══════════════════════════════════════════════════════════
-async function startQuiz() {
-  const loading = document.getElementById('quiz-loading');
-  const body    = document.getElementById('quiz-body');
-  loading.classList.add('show');
-  body.innerHTML = '';
-  quizData     = null;
-  quizAnswered = false;
+// 次の問題を裏でこっそり生成
+async function prefetchNextQuiz() {
+  if (prefetching) return;
+  prefetching = true;
+  try {
+    const nlmContext  = await fetchContext(currentTopic);
+    const contextNote = nlmContext ? `以下の教材を参照して問題を作成してください。\n【教材】\n${nlmContext}\n\n` : '';
+    const prompt = contextNote + buildQuizPrompt();
+    const result = await callAI([{ role: 'user', content: prompt }], true);
+    if (!result.error) {
+      let clean = result.text.trim().replace(/^```json\s*/,'').replace(/\s*```$/,'').trim();
+      clean = clean.replace(/"[^"]*"/g, m => m.replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/\t/g,'\\t'));
+      nextQuizData = JSON.parse(clean);
+    }
+  } catch { nextQuizData = null; }
+  prefetching = false;
+}
 
-  // NLM教材があればコンテキストとして使う
-  const nlmContext = await fetchContext(currentTopic);
-  const contextNote = nlmContext
-    ? `以下の教材を参照して問題を作成してください。\n【教材】\n${nlmContext}\n\n`
-    : '';
-
-  const prompt = contextNote + `フィンランド語A2レベルの「${currentTopic}」に関するクイズを1問生成してください。
+function buildQuizPrompt() {
+  return `フィンランド語A2レベルの「${currentTopic}」に関するクイズを1問生成してください。
 
 以下のJSON形式のみで回答（コードブロック不要）:
 {
@@ -676,8 +683,33 @@ async function startQuiz() {
     }
   ]
 }`;
+}
 
-  const result = await callAI([{ role: 'user', content: prompt }], true);
+async function startQuiz() {
+  const loading = document.getElementById('quiz-loading');
+  const body    = document.getElementById('quiz-body');
+  loading.classList.add('show');
+  body.innerHTML = '';
+  quizData     = null;
+  quizAnswered = false;
+  nextQuizData = null;
+  prefetching  = false;
+
+  // 先読みキャッシュがあれば即表示
+  if (nextQuizData) {
+    quizData = nextQuizData;
+    nextQuizData = null;
+    loading.classList.remove('show');
+    renderQuiz();
+    prefetchNextQuiz();  // 次の問題を裏で生成開始
+    return;
+  }
+
+  // キャッシュなし：通常生成
+  const nlmContext  = await fetchContext(currentTopic);
+  const contextNote = nlmContext ? `以下の教材を参照して問題を作成してください。\n【教材】\n${nlmContext}\n\n` : '';
+  const prompt      = contextNote + buildQuizPrompt();
+  const result      = await callAI([{ role: 'user', content: prompt }], true);
   loading.classList.remove('show');
 
   if (result.error) {
@@ -689,12 +721,12 @@ async function startQuiz() {
   try {
     let clean = result.text.trim()
       .replace(/^```json\s*/,'').replace(/\s*```$/,'').trim();
-    // JSON文字列内の生の改行をエスケープして安全にパース
     clean = clean.replace(/"[^"]*"/g, m =>
       m.replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/\t/g,'\\t')
     );
     quizData = JSON.parse(clean);
     renderQuiz();
+    prefetchNextQuiz();  // 次の問題を裏で生成開始
   } catch {
     body.innerHTML = `<div class="error">問題の解析に失敗しました。再試行してください。<br><small>${esc(result.text.substring(0,200))}</small></div>
       <button class="btn-next show" onclick="startQuiz()" style="margin-top:8px">再試行</button>`;
