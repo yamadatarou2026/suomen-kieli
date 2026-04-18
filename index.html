@@ -531,28 +531,53 @@ function saveSettings() {
 
 // ═══════════════════════════════════════════════════════════
 //  API CALL  (GAS経由 - APIキーはGAS側にのみ存在)
+//  opts: { system, messages, maxTokens }
+//    system は文字列 OR content blocks 配列（cache_control対応）
 // ═══════════════════════════════════════════════════════════
-async function callAI(messages, jsonMode) {
+async function callAI(opts) {
   if (!gasUrl) {
     return { error: 'GAS URLが未設定です。右上の「設定」からURLを入力してください。' };
   }
   try {
-    const system = jsonMode
-      ? SYSTEM + '\n\n重要: 必ずJSON形式のみで回答してください。説明文・コードブロック記法（```）は一切不要です。'
-      : SYSTEM;
-
-    const res  = await fetch(gasUrl, {
+    const res = await fetch(gasUrl, {
       method:  'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body:    JSON.stringify({ action: 'chat', system, messages, maxTokens: jsonMode ? 600 : 900 }),
+      body:    JSON.stringify({
+        action:    'chat',
+        system:    opts.system,
+        messages:  opts.messages,
+        maxTokens: opts.maxTokens || 900
+      }),
     });
     const data = await res.json();
-    if (data.error) return { error: data.error };
+    if (data.error) return { error: typeof data.error === 'string' ? data.error : JSON.stringify(data.error) };
     if (!data.content || !data.content[0]) return { error: 'AIからの応答が空です' };
-    return { text: data.content[0].text };
+    // キャッシュ動作確認用のログ（慣れたら削除可）
+    if (data.usage) console.log('[usage]', data.usage);
+    return { text: data.content[0].text, usage: data.usage };
   } catch (e) {
     return { error: 'GASへの接続に失敗しました: ' + e.message };
   }
+}
+
+// 教材コンテキストを system のキャッシュブロックとして構築
+//   - 教材があればコンテンツブロック配列にして cache_control 付与（90%コスト削減）
+//   - 教材がなければ文字列のまま返す
+function buildSystem(nlmContext, jsonMode) {
+  const base = jsonMode
+    ? SYSTEM + '\n\n重要: 必ずJSON形式のみで回答してください。説明文・コードブロック記法（```）は一切不要です。'
+    : SYSTEM;
+
+  if (!nlmContext) return base;
+
+  return [
+    { type: 'text', text: base },
+    {
+      type: 'text',
+      text: `【教材: ${currentTopic}】\n${nlmContext}`,
+      cache_control: { type: 'ephemeral' }
+    }
+  ];
 }
 
 async function saveRecord(record) {
@@ -605,6 +630,8 @@ function setTopic(btn) {
   document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
   btn.classList.add('active');
   currentTopic = btn.textContent.trim();
+  // トピック切り替え時は先読みキャッシュを破棄（別トピックの問題が出るのを防ぐ）
+  nextQuizData = null;
   if (currentTab === 'explain') loadExplain();
   else if (currentTab === 'quiz') startQuiz();
 }
@@ -618,16 +645,15 @@ async function loadExplain() {
   loading.classList.add('show');
   body.innerHTML = '';
 
-  // NLM教材があればコンテキストとして使う
   const nlmContext = await fetchContext(currentTopic);
-  const contextNote = nlmContext
-    ? `\n\n【教材より】\n${nlmContext}\n\n上記の教材内容を優先的に参照して解説してください。`
-    : '';
+  const prompt = TOPIC_PROMPTS[currentTopic]
+    || `「${currentTopic}」についてA2レベルで解説してください。`;
 
-  const prompt = (TOPIC_PROMPTS[currentTopic]
-    || `「${currentTopic}」についてA2レベルで解説してください。`) + contextNote;
-
-  const result = await callAI([{ role: 'user', content: prompt }]);
+  const result = await callAI({
+    system:    buildSystem(nlmContext, false),
+    messages:  [{ role: 'user', content: prompt }],
+    maxTokens: 900
+  });
   loading.classList.remove('show');
 
   if (result.error) {
@@ -640,24 +666,6 @@ async function loadExplain() {
 // ═══════════════════════════════════════════════════════════
 //  QUIZ MODE
 // ═══════════════════════════════════════════════════════════
-// 次の問題を裏でこっそり生成
-async function prefetchNextQuiz() {
-  if (prefetching) return;
-  prefetching = true;
-  try {
-    const nlmContext  = await fetchContext(currentTopic);
-    const contextNote = nlmContext ? `以下の教材を参照して問題を作成してください。\n【教材】\n${nlmContext}\n\n` : '';
-    const prompt = contextNote + buildQuizPrompt();
-    const result = await callAI([{ role: 'user', content: prompt }], true);
-    if (!result.error) {
-      let clean = result.text.trim().replace(/^```json\s*/,'').replace(/\s*```$/,'').trim();
-      clean = clean.replace(/"[^"]*"/g, m => m.replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/\t/g,'\\t'));
-      nextQuizData = JSON.parse(clean);
-    }
-  } catch { nextQuizData = null; }
-  prefetching = false;
-}
-
 function buildQuizPrompt() {
   return `フィンランド語A2レベルの「${currentTopic}」に関するクイズを1問生成してください。
 
@@ -685,31 +693,54 @@ function buildQuizPrompt() {
 }`;
 }
 
+// 次の問題を裏でこっそり生成
+async function prefetchNextQuiz() {
+  if (prefetching) return;
+  prefetching = true;
+  try {
+    const nlmContext = await fetchContext(currentTopic);
+    const result = await callAI({
+      system:    buildSystem(nlmContext, true),
+      messages:  [{ role: 'user', content: buildQuizPrompt() }],
+      maxTokens: 600
+    });
+    if (!result.error) {
+      let clean = result.text.trim().replace(/^```json\s*/,'').replace(/\s*```$/,'').trim();
+      clean = clean.replace(/"[^"]*"/g, m => m.replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/\t/g,'\\t'));
+      nextQuizData = JSON.parse(clean);
+    }
+  } catch { nextQuizData = null; }
+  prefetching = false;
+}
+
 async function startQuiz() {
   const loading = document.getElementById('quiz-loading');
   const body    = document.getElementById('quiz-body');
-  loading.classList.add('show');
   body.innerHTML = '';
   quizData     = null;
   quizAnswered = false;
-  nextQuizData = null;
-  prefetching  = false;
 
-  // 先読みキャッシュがあれば即表示
+  // ★ 先読みキャッシュがあれば即表示（reset前にチェック！ここが重要）
   if (nextQuizData) {
     quizData = nextQuizData;
     nextQuizData = null;
+    prefetching  = false;
     loading.classList.remove('show');
     renderQuiz();
     prefetchNextQuiz();  // 次の問題を裏で生成開始
     return;
   }
 
-  // キャッシュなし：通常生成
-  const nlmContext  = await fetchContext(currentTopic);
-  const contextNote = nlmContext ? `以下の教材を参照して問題を作成してください。\n【教材】\n${nlmContext}\n\n` : '';
-  const prompt      = contextNote + buildQuizPrompt();
-  const result      = await callAI([{ role: 'user', content: prompt }], true);
+  // 先読みなし：通常生成
+  prefetching = false;
+  loading.classList.add('show');
+
+  const nlmContext = await fetchContext(currentTopic);
+  const result = await callAI({
+    system:    buildSystem(nlmContext, true),
+    messages:  [{ role: 'user', content: buildQuizPrompt() }],
+    maxTokens: 600
+  });
   loading.classList.remove('show');
 
   if (result.error) {
@@ -719,11 +750,8 @@ async function startQuiz() {
   }
 
   try {
-    let clean = result.text.trim()
-      .replace(/^```json\s*/,'').replace(/\s*```$/,'').trim();
-    clean = clean.replace(/"[^"]*"/g, m =>
-      m.replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/\t/g,'\\t')
-    );
+    let clean = result.text.trim().replace(/^```json\s*/,'').replace(/\s*```$/,'').trim();
+    clean = clean.replace(/"[^"]*"/g, m => m.replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/\t/g,'\\t'));
     quizData = JSON.parse(clean);
     renderQuiz();
     prefetchNextQuiz();  // 次の問題を裏で生成開始
@@ -863,17 +891,19 @@ async function sendFree() {
   if (!q) return;
   input.value = '';
 
-  const section  = document.getElementById('sec-' + currentTab);
-  const spinner  = document.createElement('div');
+  const section = document.getElementById('sec-' + currentTab);
+  const spinner = document.createElement('div');
   spinner.className = 'loading show';
   spinner.innerHTML = '<div class="spinner"></div>回答を生成中...';
   section.appendChild(spinner);
   section.scrollTop = section.scrollHeight;
 
-  const result = await callAI([{
-    role:    'user',
-    content: q + '（日本語で説明し、英語訳は括弧書きで添えてください）'
-  }]);
+  // 自由質問は教材非依存（キャッシュ対象外でOK・シンプルに文字列system）
+  const result = await callAI({
+    system:    SYSTEM,
+    messages:  [{ role: 'user', content: q + '（日本語で説明し、英語訳は括弧書きで添えてください）' }],
+    maxTokens: 900
+  });
 
   spinner.remove();
 
@@ -915,11 +945,7 @@ function renderMd(text) {
 if (!gasUrl) {
   setTimeout(openSettings, 400);
 } else {
-  loadExplain();
-  // バックグラウンドで全トピックの教材をプリロード（クイズ高速化）
-  setTimeout(() => {
-    Object.keys(TOPIC_PROMPTS).forEach(t => fetchContext(t));
-  }, 1500);
+  loadExplain();  // この中で fetchContext(currentTopic) も呼ばれるので、起動時一括先読みは不要
 }
 </script>
 </body>
