@@ -417,6 +417,7 @@ body {
     <button class="chip"        onclick="setTopic(this)">場所格</button>
     <button class="chip"        onclick="setTopic(this)">エッセシフ格</button>
     <button class="chip"        onclick="setTopic(this)">動詞活用</button>
+    <button class="chip"        onclick="setTopic(this)">感情表現 (Tunteet)</button>
   </div>
 
   <!-- Content -->
@@ -472,11 +473,12 @@ body {
 // ═══════════════════════════════════════════════════════════
 //  STATE
 // ═══════════════════════════════════════════════════════════
-let gasUrl       = localStorage.getItem('gasUrl') || '';
-let currentTopic = '格変化';
-let currentTab   = 'explain';
-let quizData     = null;
-let quizAnswered = false;
+let gasUrl        = localStorage.getItem('gasUrl') || '';
+let currentTopic  = '格変化';
+let currentTab    = 'explain';
+let quizData      = null;
+let quizAnswered  = false;
+const ctxCache    = {};  // トピック別教材キャッシュ（ページ読み込み中は再取得しない）
 
 // ═══════════════════════════════════════════════════════════
 //  SYSTEM PROMPT
@@ -500,6 +502,7 @@ const TOPIC_PROMPTS = {
   '場所格':       'フィンランド語の場所格（-ssa/-ssä, -sta/-stä, -lle, -lla/-llä, -lta/-ltä）について解説してください。内部格と外部格の違いも含めてください。',
   'エッセシフ格': 'フィンランド語のエッセシフ格（essiivi: -na/-nä）について、意味・使い方・例文を解説してください。',
   '動詞活用':     'フィンランド語の動詞活用（人称変化）の基本規則を解説してください。olla・mennä・tulla を例に使ってください。',
+  '感情表現 (Tunteet)': 'フィンランド語の感情表現（tunteet）について解説してください。よく使う感情を表す語彙・形容詞・動詞表現、感情を伝える文の作り方を例文（フィンランド語・日本語・英語）付きで説明してください。',
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -538,9 +541,8 @@ async function callAI(messages, jsonMode) {
 
     const res  = await fetch(gasUrl, {
       method:  'POST',
-      // text/plain で送ることでGASのCORS preflight を回避
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body:    JSON.stringify({ action: 'chat', system, messages }),
+      body:    JSON.stringify({ action: 'chat', system, messages, maxTokens: jsonMode ? 600 : 900 }),
     });
     const data = await res.json();
     if (data.error) return { error: data.error };
@@ -571,13 +573,15 @@ async function fetchHistory() {
   } catch { return null; }
 }
 
-// NLM同期済み教材をGAS経由で取得
+// NLM同期済み教材をGAS経由で取得（キャッシュ付き）
 async function fetchContext(topic) {
+  if (ctxCache[topic] !== undefined) return ctxCache[topic];  // キャッシュヒット
   if (!gasUrl) return '';
   try {
     const res  = await fetch(gasUrl + '?action=context&topic=' + encodeURIComponent(topic));
     const data = await res.json();
-    return data.context || '';
+    ctxCache[topic] = data.context || '';
+    return ctxCache[topic];
   } catch { return ''; }
 }
 
@@ -877,10 +881,13 @@ function renderMd(text) {
 //  INIT
 // ═══════════════════════════════════════════════════════════
 if (!gasUrl) {
-  // 初回起動時は設定を促す
   setTimeout(openSettings, 400);
 } else {
   loadExplain();
+  // バックグラウンドで全トピックの教材をプリロード（クイズ高速化）
+  setTimeout(() => {
+    Object.keys(TOPIC_PROMPTS).forEach(t => fetchContext(t));
+  }, 1500);
 }
 </script>
 </body>
