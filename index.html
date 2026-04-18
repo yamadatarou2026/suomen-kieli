@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>フィンランド語チューター</title>
+<style>
+:root {
+  --bg:        #ffffff;
+  --bg2:       #f5f5f3;
+  --border:    rgba(0,0,0,0.12);
+  --text:      #1a1a1a;
+  --text2:     #666;
+  --text3:     #999;
+  --green:     #1D9E75;
+  --green-bg:  #e1f5ee;
+  --green-txt: #085041;
+  --red-bg:    #fcebeb;
+  --red-txt:   #791f1f;
+  --blue-bg:   #e6f1fb;
+  --blue-txt:  #0c447c;
+  --warn-bg:   #faeeda;
+  --warn-txt:  #633806;
+  --r:         8px;
+  --rl:        12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:        #1c1c1e;
+    --bg2:       #2c2c2e;
+    --border:    rgba(255,255,255,0.12);
+    --text:      #e8e8e8;
+    --text2:     #aaa;
+    --text3:     #666;
+    --green-bg:  #04342c;
+    --green-txt: #9fe1cb;
+    --red-bg:    #501313;
+    --red-txt:   #f09595;
+    --blue-bg:   #042c53;
+    --blue-txt:  #85b7eb;
+    --warn-bg:   #412402;
+    --warn-txt:  #fac775;
+  }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+  background: var(--bg2);
+  color: var(--text);
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* ─── Layout ─────────────────────────────────────────── */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  max-width: 680px;
+  margin: 0 auto;
+  background: var(--bg);
+}
+
+/* ─── Header ─────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 0.5px solid var(--border);
+  gap: 8px;
+  flex-shrink: 0;
+}
+.header h1 { font-size: 15px; font-weight: 500; flex: 1; }
+.btn-settings {
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: var(--r);
+  border: 0.5px solid var(--border);
+  background: none;
+  cursor: pointer;
+  color: var(--text2);
+}
+
+/* ─── Tabs ───────────────────────────────────────────── */
+.tabs {
+  display: flex;
+  border-bottom: 0.5px solid var(--border);
+  flex-shrink: 0;
+}
+.tab {
+  flex: 1;
+  padding: 10px 4px;
+  font-size: 13px;
+  text-align: center;
+  cursor: pointer;
+  color: var(--text2);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+}
+.tab.active { color: var(--green); border-bottom-color: var(--green); font-weight: 500; }
+
+/* ─── Topic chips ────────────────────────────────────── */
+.topic-row {
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px;
+  overflow-x: auto;
+  border-bottom: 0.5px solid var(--border);
+  flex-shrink: 0;
+  scrollbar-width: none;
+}
+.topic-row::-webkit-scrollbar { display: none; }
+.chip {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 0.5px solid var(--border);
+  background: none;
+  cursor: pointer;
+  color: var(--text2);
+  white-space: nowrap;
+}
+.chip.active {
+  background: var(--green-bg);
+  color: var(--green-txt);
+  border-color: transparent;
+  font-weight: 500;
+}
+
+/* ─── Content area ───────────────────────────────────── */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.section { display: none; flex-direction: column; gap: 10px; }
+.section.active { display: flex; }
+
+/* ─── Cards ──────────────────────────────────────────── */
+.card {
+  background: var(--bg2);
+  border-radius: var(--r);
+  padding: 12px 14px;
+}
+.card h3 { font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+
+/* ─── Example sentences ──────────────────────────────── */
+.example {
+  border-left: 2px solid var(--green);
+  padding: 6px 10px;
+  border-radius: 0 var(--r) var(--r) 0;
+  background: var(--bg2);
+  margin: 3px 0;
+}
+.fi  { font-size: 14px; font-weight: 500; }
+.ja  { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.en  { font-size: 12px; color: var(--text3); margin-top: 1px; font-style: italic; }
+
+/* ─── AI response text ───────────────────────────────── */
+.ai-text {
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--text);
+}
+.ai-text strong { font-weight: 500; }
+.ai-text h3 {
+  font-size: 14px;
+  font-weight: 500;
+  margin: 10px 0 4px;
+}
+.ai-text ul { padding-left: 18px; }
+.ai-text li { margin-bottom: 3px; }
+.ai-text table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: 8px 0;
+}
+.ai-text th {
+  text-align: left;
+  color: var(--text3);
+  font-weight: 500;
+  padding: 4px 6px;
+  border-bottom: 0.5px solid var(--border);
+}
+.ai-text td {
+  padding: 5px 6px;
+  color: var(--text2);
+  border-bottom: 0.5px solid var(--border);
+}
+
+/* ─── Quiz ───────────────────────────────────────────── */
+.quiz-q    { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+.quiz-hint { font-size: 12px; color: var(--text3); margin-bottom: 12px; }
+.options   { display: flex; flex-direction: column; gap: 6px; }
+.option {
+  text-align: left;
+  font-size: 13px;
+  padding: 11px 14px;
+  border-radius: var(--r);
+  border: 0.5px solid var(--border);
+  background: none;
+  cursor: pointer;
+  color: var(--text);
+  width: 100%;
+  line-height: 1.4;
+}
+.option:active:not(:disabled) { opacity: 0.7; }
+.option.correct { background: var(--green-bg); color: var(--green-txt); border-color: transparent; }
+.option.wrong   { background: var(--red-bg);   color: var(--red-txt);   border-color: transparent; }
+.option:disabled { cursor: default; }
+
+.feedback {
+  display: none;
+  border-radius: var(--r);
+  padding: 12px 14px;
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.feedback.show      { display: block; }
+.feedback.ok { background: var(--green-bg); color: var(--green-txt); }
+.feedback.ng { background: var(--red-bg);   color: var(--red-txt); }
+.feedback strong { font-weight: 500; }
+
+.btn-next {
+  display: none;
+  margin-top: 8px;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: var(--r);
+  border: 0.5px solid var(--border);
+  background: none;
+  cursor: pointer;
+  color: var(--text2);
+}
+.btn-next.show { display: inline-block; }
+
+/* ─── History ────────────────────────────────────────── */
+.hist-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--r);
+  background: var(--bg2);
+}
+.hist-name  { font-size: 13px; font-weight: 500; flex: 1; }
+.hist-pct   { font-size: 13px; font-weight: 500; min-width: 36px; text-align: right; }
+.hist-bar   { width: 60px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 3px; }
+.hist-fill  { height: 100%; border-radius: 2px; }
+.hist-stats { font-size: 11px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.s-ok  { color: var(--green); }
+.s-ng  { color: #E24B4A; }
+
+.warn-card {
+  background: var(--warn-bg);
+  color: var(--warn-txt);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  font-size: 13px;
+}
+
+/* ─── Loading ────────────────────────────────────────── */
+.loading {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  color: var(--text3);
+  font-size: 13px;
+  padding: 16px 0;
+}
+.loading.show { display: flex; }
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─── Error ──────────────────────────────────────────── */
+.error {
+  font-size: 13px;
+  color: var(--red-txt);
+  background: var(--red-bg);
+  padding: 10px 14px;
+  border-radius: var(--r);
+  line-height: 1.6;
+}
+
+/* ─── Bottom bar ─────────────────────────────────────── */
+.bottom-bar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 0.5px solid var(--border);
+  flex-shrink: 0;
+}
+.bottom-bar input {
+  flex: 1;
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: var(--r);
+  border: 0.5px solid var(--border);
+  background: var(--bg2);
+  color: var(--text);
+  min-width: 0;
+}
+.bottom-bar input::placeholder { color: var(--text3); }
+.btn-send {
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: var(--r);
+  border: 0.5px solid var(--border);
+  background: none;
+  cursor: pointer;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* ─── Settings overlay ───────────────────────────────── */
+.overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 100;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+}
+.overlay.show { display: flex; }
+.modal {
+  background: var(--bg);
+  border-radius: var(--rl) var(--rl) 0 0;
+  padding: 20px 20px 32px;
+  width: 100%;
+  max-width: 680px;
+}
+.modal h2   { font-size: 15px; font-weight: 500; margin-bottom: 14px; }
+.modal label { font-size: 12px; color: var(--text2); display: block; margin-bottom: 4px; margin-top: 14px; }
+.modal label:first-of-type { margin-top: 0; }
+.modal input {
+  width: 100%;
+  font-size: 13px;
+  padding: 9px 12px;
+  border-radius: var(--r);
+  border: 0.5px solid var(--border);
+  background: var(--bg2);
+  color: var(--text);
+}
+.modal-note {
+  font-size: 11px;
+  color: var(--text3);
+  margin-top: 6px;
+  line-height: 1.6;
+}
+.modal-btns {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+  justify-content: flex-end;
+}
+.btn-cancel {
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: var(--r);
+  border: 0.5px solid var(--border);
+  background: none;
+  cursor: pointer;
+  color: var(--text2);
+}
+.btn-save {
+  font-size: 13px;
+  padding: 8px 20px;
+  border-radius: var(--r);
+  border: none;
+  background: var(--green);
+  cursor: pointer;
+  color: white;
+  font-weight: 500;
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>フィンランド語チューター</h1>
+    <button class="btn-settings" onclick="openSettings()">設定</button>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('explain', this)">解説</button>
+    <button class="tab"        onclick="switchTab('quiz',    this)">クイズ</button>
+    <button class="tab"        onclick="switchTab('history', this)">履歴</button>
+  </div>
+
+  <!-- Topic chips -->
+  <div class="topic-row">
+    <button class="chip active" onclick="setTopic(this)">格変化</button>
+    <button class="chip"        onclick="setTopic(this)">受け身・過去形</button>
+    <button class="chip"        onclick="setTopic(this)">pitää / voida</button>
+    <button class="chip"        onclick="setTopic(this)">場所格</button>
+    <button class="chip"        onclick="setTopic(this)">エッセシフ格</button>
+    <button class="chip"        onclick="setTopic(this)">動詞活用</button>
+  </div>
+
+  <!-- Content -->
+  <div class="content" id="main-content">
+
+    <!-- 解説 -->
+    <div class="section active" id="sec-explain">
+      <div class="loading" id="explain-loading"><div class="spinner"></div>解説を生成中...</div>
+      <div id="explain-body"></div>
+    </div>
+
+    <!-- クイズ -->
+    <div class="section" id="sec-quiz">
+      <div class="loading" id="quiz-loading"><div class="spinner"></div>問題を生成中...</div>
+      <div id="quiz-body"></div>
+    </div>
+
+    <!-- 履歴 -->
+    <div class="section" id="sec-history">
+      <div class="loading" id="hist-loading"><div class="spinner"></div>履歴を読み込み中...</div>
+      <div id="hist-body"></div>
+    </div>
+
+  </div>
+
+  <!-- Bottom bar: free question -->
+  <div class="bottom-bar">
+    <input id="free-input"
+           placeholder="自由質問（例：属格と分格の違いを日英で）"
+           onkeydown="if(event.key==='Enter')sendFree()"/>
+    <button class="btn-send" onclick="sendFree()">送信 ↗</button>
+  </div>
+
+</div><!-- /.app -->
+
+<!-- Settings -->
+<div class="overlay" id="overlay" onclick="if(event.target===this)closeSettings()">
+  <div class="modal">
+    <h2>設定</h2>
+    <label>GAS Webアプリ URL</label>
+    <input id="gas-input"
+           type="url"
+           placeholder="https://script.google.com/macros/s/.../exec"/>
+    <p class="modal-note">GASをデプロイして発行されたURLを貼り付けてください。<br>このURLはこの端末のブラウザにのみ保存されます。APIキーはGAS側にあるため、このURLからは参照できません。</p>
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="closeSettings()">キャンセル</button>
+      <button class="btn-save"   onclick="saveSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════
+let gasUrl       = localStorage.getItem('gasUrl') || '';
+let currentTopic = '格変化';
+let currentTab   = 'explain';
+let quizData     = null;
+let quizAnswered = false;
+
+// ═══════════════════════════════════════════════════════════
+//  SYSTEM PROMPT
+// ═══════════════════════════════════════════════════════════
+const SYSTEM = `あなたはフィンランド語A2レベルの学習チューターです。学習者の母国語は日本語です。
+
+回答のルール:
+1. 専門用語は「日本語（English）」の形で必ず両言語を示す（例：属格（genitive））
+2. 例文はフィンランド語・日本語訳・英語訳の3行で示す
+3. 誤答を分析するときは「〜を選んだということは〜と考えた可能性があります」という形で推測から入り、正しい思考プロセスを段階的に説明する
+4. フィンランド語の格は日本語の助詞（〜が・〜の・〜を）と対比して説明する
+5. A2レベルの範囲で簡潔に回答する（B1以上の内容は「参考」として軽く触れる程度に留める）`;
+
+// ═══════════════════════════════════════════════════════════
+//  TOPIC PROMPTS
+// ═══════════════════════════════════════════════════════════
+const TOPIC_PROMPTS = {
+  '格変化':       'フィンランド語の格変化（sijamuoto）について、主格・属格・分格・内格・入格・出格を中心に解説してください。各格の語尾・意味・使用場面・例文（フィンランド語・日本語・英語）を含めてください。',
+  '受け身・過去形':'フィンランド語の受け身形（passiivi）と過去形（imperfekti）について解説してください。作り方・使い方・例文を含めてください。',
+  'pitää / voida':'フィンランド語の pitää・voida・saada・täytyy の使い方と違いを解説してください。それぞれの用途・例文を含めてください。',
+  '場所格':       'フィンランド語の場所格（-ssa/-ssä, -sta/-stä, -lle, -lla/-llä, -lta/-ltä）について解説してください。内部格と外部格の違いも含めてください。',
+  'エッセシフ格': 'フィンランド語のエッセシフ格（essiivi: -na/-nä）について、意味・使い方・例文を解説してください。',
+  '動詞活用':     'フィンランド語の動詞活用（人称変化）の基本規則を解説してください。olla・mennä・tulla を例に使ってください。',
+};
+
+// ═══════════════════════════════════════════════════════════
+//  SETTINGS
+// ═══════════════════════════════════════════════════════════
+function openSettings() {
+  document.getElementById('gas-input').value = gasUrl;
+  document.getElementById('overlay').classList.add('show');
+}
+function closeSettings() {
+  document.getElementById('overlay').classList.remove('show');
+}
+function saveSettings() {
+  const v = document.getElementById('gas-input').value.trim();
+  if (v && !v.startsWith('https://script.google.com/')) {
+    alert('GAS URLの形式が正しくないようです。確認してください。');
+    return;
+  }
+  gasUrl = v;
+  localStorage.setItem('gasUrl', gasUrl);
+  closeSettings();
+  if (currentTab === 'explain') loadExplain();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  API CALL  (GAS経由 - APIキーはGAS側にのみ存在)
+// ═══════════════════════════════════════════════════════════
+async function callAI(messages, jsonMode) {
+  if (!gasUrl) {
+    return { error: 'GAS URLが未設定です。右上の「設定」からURLを入力してください。' };
+  }
+  try {
+    const system = jsonMode
+      ? SYSTEM + '\n\n重要: 必ずJSON形式のみで回答してください。説明文・コードブロック記法（```）は一切不要です。'
+      : SYSTEM;
+
+    const res  = await fetch(gasUrl, {
+      method:  'POST',
+      // text/plain で送ることでGASのCORS preflight を回避
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body:    JSON.stringify({ action: 'chat', system, messages }),
+    });
+    const data = await res.json();
+    if (data.error) return { error: data.error };
+    if (!data.content || !data.content[0]) return { error: 'AIからの応答が空です' };
+    return { text: data.content[0].text };
+  } catch (e) {
+    return { error: 'GASへの接続に失敗しました: ' + e.message };
+  }
+}
+
+async function saveRecord(record) {
+  if (!gasUrl) return;
+  try {
+    await fetch(gasUrl, {
+      method:  'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body:    JSON.stringify({ action: 'save', record }),
+    });
+  } catch { /* silent */ }
+}
+
+async function fetchHistory() {
+  if (!gasUrl) return null;
+  try {
+    const res  = await fetch(gasUrl + '?action=history');
+    const data = await res.json();
+    return data.rows || [];
+  } catch { return null; }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TAB / TOPIC SWITCHING
+// ═══════════════════════════════════════════════════════════
+function switchTab(tab, btn) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.getElementById('sec-' + tab).classList.add('active');
+  if (tab === 'explain') loadExplain();
+  else if (tab === 'quiz')    startQuiz();
+  else if (tab === 'history') loadHistory();
+}
+
+function setTopic(btn) {
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  currentTopic = btn.textContent.trim();
+  if (currentTab === 'explain') loadExplain();
+  else if (currentTab === 'quiz') startQuiz();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  EXPLAIN MODE
+// ═══════════════════════════════════════════════════════════
+async function loadExplain() {
+  const loading = document.getElementById('explain-loading');
+  const body    = document.getElementById('explain-body');
+  loading.classList.add('show');
+  body.innerHTML = '';
+
+  const prompt = TOPIC_PROMPTS[currentTopic]
+    || `「${currentTopic}」についてA2レベルで解説してください。`;
+
+  const result = await callAI([{ role: 'user', content: prompt }]);
+  loading.classList.remove('show');
+
+  if (result.error) {
+    body.innerHTML = `<div class="error">${esc(result.error)}</div>`;
+  } else {
+    body.innerHTML = `<div class="card"><div class="ai-text">${renderMd(result.text)}</div></div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  QUIZ MODE
+// ═══════════════════════════════════════════════════════════
+async function startQuiz() {
+  const loading = document.getElementById('quiz-loading');
+  const body    = document.getElementById('quiz-body');
+  loading.classList.add('show');
+  body.innerHTML = '';
+  quizData     = null;
+  quizAnswered = false;
+
+  const prompt = `フィンランド語A2レベルの「${currentTopic}」に関するクイズを1問生成してください。
+
+以下のJSON形式のみで回答（コードブロック不要）:
+{
+  "question": "問題文（日本語）",
+  "fi_word": "変化させる語（例: talo）",
+  "options": [
+    {
+      "text": "選択肢（フィンランド語）",
+      "correct": false,
+      "reason": "この選択肢を選んだ場合:「〜という語尾を選んだということは〜と考えた可能性があります」から入り、正しい考え方を日英併記で説明"
+    },
+    {
+      "text": "正解の選択肢",
+      "correct": true,
+      "reason": "なぜこれが正解か・どう記憶するかを日英併記で詳しく説明"
+    },
+    {
+      "text": "選択肢",
+      "correct": false,
+      "reason": "この選択肢を選んだ場合の分析（日英併記）"
+    }
+  ]
+}`;
+
+  const result = await callAI([{ role: 'user', content: prompt }], true);
+  loading.classList.remove('show');
+
+  if (result.error) {
+    body.innerHTML = `<div class="error">${esc(result.error)}</div>
+      <button class="btn-next show" onclick="startQuiz()" style="margin-top:8px">再試行</button>`;
+    return;
+  }
+
+  try {
+    const clean = result.text.trim()
+      .replace(/^```json\s*/,'').replace(/\s*```$/,'').trim();
+    quizData = JSON.parse(clean);
+    renderQuiz();
+  } catch {
+    body.innerHTML = `<div class="error">問題の解析に失敗しました。再試行してください。<br><small>${esc(result.text.substring(0,200))}</small></div>
+      <button class="btn-next show" onclick="startQuiz()" style="margin-top:8px">再試行</button>`;
+  }
+}
+
+function renderQuiz() {
+  if (!quizData) return;
+  const body = document.getElementById('quiz-body');
+
+  // シャッフル
+  const opts = [...quizData.options].sort(() => Math.random() - 0.5);
+
+  let optsHtml = '';
+  opts.forEach(opt => {
+    const r = encodeURIComponent(JSON.stringify(opt.reason));
+    optsHtml += `<button class="option"
+      data-correct="${opt.correct}"
+      data-reason="${r}"
+      onclick="answerQuiz(this)">${esc(opt.text)}</button>`;
+  });
+
+  body.innerHTML = `<div class="card">
+    <div class="quiz-q">${esc(quizData.question)}</div>
+    <div class="quiz-hint">${esc(quizData.fi_word || '')}</div>
+    <div class="options">${optsHtml}</div>
+    <div class="feedback" id="qfb"></div>
+    <button class="btn-next" id="qnext" onclick="startQuiz()">次の問題 →</button>
+  </div>`;
+}
+
+function answerQuiz(btn) {
+  if (quizAnswered) return;
+  quizAnswered = true;
+
+  const correct = btn.dataset.correct === 'true';
+  const reason  = JSON.parse(decodeURIComponent(btn.dataset.reason));
+
+  // 全ボタン無効化 + 正解を緑に
+  document.querySelectorAll('.option').forEach(o => {
+    o.disabled = true;
+    if (o.dataset.correct === 'true') o.classList.add('correct');
+  });
+  if (!correct) btn.classList.add('wrong');
+
+  const fb = document.getElementById('qfb');
+  fb.className = 'feedback show ' + (correct ? 'ok' : 'ng');
+  fb.innerHTML = correct
+    ? `<strong>正解！</strong><br>${renderMd(reason)}`
+    : `<strong>惜しい！</strong><br>${renderMd(reason)}`;
+
+  document.getElementById('qnext').classList.add('show');
+
+  // 履歴保存
+  saveRecord({
+    topic:    currentTopic,
+    question: quizData.question,
+    correct:  correct,
+    chosen:   btn.textContent.trim(),
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  HISTORY MODE
+// ═══════════════════════════════════════════════════════════
+async function loadHistory() {
+  const loading = document.getElementById('hist-loading');
+  const body    = document.getElementById('hist-body');
+  loading.classList.add('show');
+  body.innerHTML = '';
+
+  const rows = await fetchHistory();
+  loading.classList.remove('show');
+
+  if (rows === null) {
+    body.innerHTML = '<div class="error">履歴の読み込みに失敗しました。設定を確認してください。</div>';
+    return;
+  }
+  if (rows.length === 0) {
+    body.innerHTML = '<div class="card"><p style="color:var(--text3);font-size:13px">まだ記録がありません。クイズに挑戦してみましょう！</p></div>';
+    return;
+  }
+
+  // トピック別に集計
+  const stats = {};
+  rows.forEach(r => {
+    const t = r.topic || '不明';
+    if (!stats[t]) stats[t] = { ok: 0, ng: 0 };
+    if (r.correct) stats[t].ok++;
+    else           stats[t].ng++;
+  });
+
+  // 正解率の低い順に表示
+  const sorted = Object.entries(stats).sort((a, b) => {
+    const ra = a[1].ok / (a[1].ok + a[1].ng);
+    const rb = b[1].ok / (b[1].ok + b[1].ng);
+    return ra - rb;
+  });
+
+  let html = `<div style="font-size:12px;color:var(--text3);margin-bottom:2px">累計 ${rows.length} 問</div>`;
+
+  sorted.forEach(([topic, s]) => {
+    const total = s.ok + s.ng;
+    const pct   = Math.round(s.ok / total * 100);
+    const color = pct >= 80 ? 'var(--green)' : pct >= 60 ? '#BA7517' : '#E24B4A';
+    html += `<div class="hist-item">
+      <div style="flex:1">
+        <div class="hist-name">${esc(topic)}</div>
+        <div class="hist-bar"><div class="hist-fill" style="width:${pct}%;background:${color}"></div></div>
+      </div>
+      <div class="hist-stats">
+        <span class="s-ok">正 ${s.ok}</span>
+        <span class="s-ng">誤 ${s.ng}</span>
+      </div>
+      <div class="hist-pct" style="color:${color}">${pct}%</div>
+    </div>`;
+  });
+
+  // 要復習アラート（正解率60%未満）
+  const weak = sorted.filter(([, s]) => s.ok / (s.ok + s.ng) < 0.6).map(([t]) => t);
+  if (weak.length > 0) {
+    html += `<div class="warn-card">要復習: <strong>${weak.join('・')}</strong> の正解率が60%未満です。集中練習をおすすめします。</div>`;
+  }
+
+  body.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  FREE QUESTION
+// ═══════════════════════════════════════════════════════════
+async function sendFree() {
+  const input = document.getElementById('free-input');
+  const q     = input.value.trim();
+  if (!q) return;
+  input.value = '';
+
+  const section  = document.getElementById('sec-' + currentTab);
+  const spinner  = document.createElement('div');
+  spinner.className = 'loading show';
+  spinner.innerHTML = '<div class="spinner"></div>回答を生成中...';
+  section.appendChild(spinner);
+  section.scrollTop = section.scrollHeight;
+
+  const result = await callAI([{
+    role:    'user',
+    content: q + '（日本語で説明し、英語訳は括弧書きで添えてください）'
+  }]);
+
+  spinner.remove();
+
+  const box = document.createElement('div');
+  box.className = 'card';
+  box.style.borderLeft = '2px solid var(--green)';
+  box.innerHTML = result.error
+    ? `<div class="error">${esc(result.error)}</div>`
+    : `<div class="ai-text">${renderMd(result.text)}</div>`;
+  section.appendChild(box);
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  UTILITIES
+// ═══════════════════════════════════════════════════════════
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderMd(text) {
+  return esc(text)
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g,     '<em>$1</em>')
+    .replace(/^### (.+)$/gm,   '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm,    '<h3>$1</h3>')
+    .replace(/^# (.+)$/gm,     '<h3>$1</h3>')
+    .replace(/^- (.+)$/gm,     '<li>$1</li>')
+    .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
+    .replace(/\n\n/g, '</p><p style="margin-top:8px">')
+    .replace(/\n/g,   '<br>');
+}
+
+// ═══════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════
+if (!gasUrl) {
+  // 初回起動時は設定を促す
+  setTimeout(openSettings, 400);
+} else {
+  loadExplain();
+}
+</script>
+</body>
+</html>
