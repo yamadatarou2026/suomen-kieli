@@ -571,6 +571,16 @@ async function fetchHistory() {
   } catch { return null; }
 }
 
+// NLM同期済み教材をGAS経由で取得
+async function fetchContext(topic) {
+  if (!gasUrl) return '';
+  try {
+    const res  = await fetch(gasUrl + '?action=context&topic=' + encodeURIComponent(topic));
+    const data = await res.json();
+    return data.context || '';
+  } catch { return ''; }
+}
+
 // ═══════════════════════════════════════════════════════════
 //  TAB / TOPIC SWITCHING
 // ═══════════════════════════════════════════════════════════
@@ -602,8 +612,14 @@ async function loadExplain() {
   loading.classList.add('show');
   body.innerHTML = '';
 
-  const prompt = TOPIC_PROMPTS[currentTopic]
-    || `「${currentTopic}」についてA2レベルで解説してください。`;
+  // NLM教材があればコンテキストとして使う
+  const nlmContext = await fetchContext(currentTopic);
+  const contextNote = nlmContext
+    ? `\n\n【教材より】\n${nlmContext}\n\n上記の教材内容を優先的に参照して解説してください。`
+    : '';
+
+  const prompt = (TOPIC_PROMPTS[currentTopic]
+    || `「${currentTopic}」についてA2レベルで解説してください。`) + contextNote;
 
   const result = await callAI([{ role: 'user', content: prompt }]);
   loading.classList.remove('show');
@@ -626,7 +642,13 @@ async function startQuiz() {
   quizData     = null;
   quizAnswered = false;
 
-  const prompt = `フィンランド語A2レベルの「${currentTopic}」に関するクイズを1問生成してください。
+  // NLM教材があればコンテキストとして使う
+  const nlmContext = await fetchContext(currentTopic);
+  const contextNote = nlmContext
+    ? `以下の教材を参照して問題を作成してください。\n【教材】\n${nlmContext}\n\n`
+    : '';
+
+  const prompt = contextNote + `フィンランド語A2レベルの「${currentTopic}」に関するクイズを1問生成してください。
 
 以下のJSON形式のみで回答（コードブロック不要）:
 {
