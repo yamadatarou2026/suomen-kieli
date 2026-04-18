@@ -298,6 +298,18 @@ body {
   border-radius: var(--r);
   line-height: 1.6;
 }
+.error small { display: block; margin-top: 6px; opacity: 0.85; }
+.error pre {
+  background: rgba(0,0,0,0.1);
+  padding: 6px 8px;
+  border-radius: 4px;
+  margin-top: 6px;
+  font-size: 11px;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
 
 /* ─── Bottom bar ─────────────────────────────────────── */
 .bottom-bar {
@@ -446,7 +458,7 @@ body {
   <!-- Bottom bar: free question -->
   <div class="bottom-bar">
     <input id="free-input"
-           placeholder="自由質問（例：属格と分格の違いを日英で）"
+           placeholder="自由質問(例: 属格と分格の違いを日英で)"
            onkeydown="if(event.key==='Enter')sendFree()"/>
     <button class="btn-send" onclick="sendFree()">送信 ↗</button>
   </div>
@@ -478,12 +490,14 @@ let currentTopic  = '格変化';
 let currentTab    = 'explain';
 let quizData      = null;
 let quizAnswered  = false;
-const ctxCache    = {};  // トピック別教材キャッシュ（ページ読み込み中は再取得しない）
+const ctxCache    = {};  // トピック別教材キャッシュ(ページ読み込み中は再取得しない)
 let   nextQuizData = null;  // 次の問題を先読みキャッシュ
 let   prefetching  = false;
 
-// クイズ用のmax_tokens。複雑なトピックだと3択×日英併記の説明で1000トークン超えることがある
-const QUIZ_MAX_TOKENS    = 1500;
+// max_tokens設定
+//   クイズは reason を短くしたので 2500 で十分余裕
+//   過去の試験で1500でギリギリだったので倍近い余裕を持たせる
+const QUIZ_MAX_TOKENS    = 2500;
 const EXPLAIN_MAX_TOKENS = 900;
 
 // ═══════════════════════════════════════════════════════════
@@ -556,7 +570,7 @@ async function callAI(opts) {
     const data = await res.json();
     if (data.error) return { error: typeof data.error === 'string' ? data.error : JSON.stringify(data.error) };
     if (!data.content || !data.content[0]) return { error: 'AIからの応答が空です' };
-    // キャッシュ動作確認用のログ(慣れたら削除可)
+    // キャッシュ動作・stop理由確認用のログ(慣れたら削除可)
     if (data.usage)       console.log('[usage]', data.usage);
     if (data.stop_reason) console.log('[stop_reason]', data.stop_reason);
     return {
@@ -647,7 +661,6 @@ function parseQuizJson(raw) {
   }
 
   // Step 4: 文字列内の未エスケープ制御文字をエスケープ
-  //   `"((?:\\.|[^"\\])*)"` は JSON 文字列の標準パターン
   text = text.replace(/"((?:\\.|[^"\\])*)"/g, (match, inner) => {
     const fixed = inner
       .replace(/\n/g, '\\n')
@@ -656,7 +669,7 @@ function parseQuizJson(raw) {
     return `"${fixed}"`;
   });
 
-  return JSON.parse(text);  // ここで失敗したら呼び出し側に throw
+  return JSON.parse(text);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -677,7 +690,7 @@ function setTopic(btn) {
   document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
   btn.classList.add('active');
   currentTopic = btn.textContent.trim();
-  // トピック切り替え時は先読みキャッシュを破棄(別トピックの問題が出るのを防ぐ)
+  // トピック切り替え時は先読みキャッシュを破棄
   nextQuizData = null;
   if (currentTab === 'explain') loadExplain();
   else if (currentTab === 'quiz') startQuiz();
@@ -712,30 +725,29 @@ async function loadExplain() {
 
 // ═══════════════════════════════════════════════════════════
 //  QUIZ MODE
+//   プロンプト方針:
+//     - 出力を短く保つため明確な文字数制限を指示
+//     - reason は日本語メイン(専門用語のみ英語併記可)で大幅に短縮
+//     - question も1〜2文に制限(長いヒント・解説を入れない)
 // ═══════════════════════════════════════════════════════════
 function buildQuizPrompt() {
   return `フィンランド語A2レベルの「${currentTopic}」に関するクイズを1問生成してください。
 
+【厳守すべき出力制約】
+- question: 1〜2文で簡潔に。長いヒントや背景説明は入れない(目安60字以内)
+- fi_word: 対象となる基本形の1語のみ
+- options: ちょうど3つ。うち1つだけ correct: true
+- 各 reason: 日本語で80〜120字程度に収める。専門用語は日本語(English)形式。全文の英訳は不要
+- JSON の文字列値の中で ASCII の二重引用符 (") を使わないこと。引用したい場合は 「」 を使う
+
 以下のJSON形式のみで回答(コードブロック不要):
 {
-  "question": "問題文(日本語)",
-  "fi_word": "変化させる語(例: talo)",
+  "question": "簡潔な問題文",
+  "fi_word": "対象の基本形",
   "options": [
-    {
-      "text": "選択肢(フィンランド語)",
-      "correct": false,
-      "reason": "この選択肢を選んだ場合:「〜という語尾を選んだということは〜と考えた可能性があります」から入り、正しい考え方を日英併記で説明"
-    },
-    {
-      "text": "正解の選択肢",
-      "correct": true,
-      "reason": "なぜこれが正解か・どう記憶するかを日英併記で詳しく説明"
-    },
-    {
-      "text": "選択肢",
-      "correct": false,
-      "reason": "この選択肢を選んだ場合の分析(日英併記)"
-    }
+    {"text": "選択肢(フィンランド語)", "correct": false, "reason": "〜を選んだということは〜と考えた可能性があります。正しくは〜"},
+    {"text": "正解", "correct": true, "reason": "〜が正解。理由は〜。覚え方は〜"},
+    {"text": "選択肢", "correct": false, "reason": "〜を選んだということは〜と考えた可能性があります。正しくは〜"}
   ]
 }`;
 }
@@ -769,14 +781,14 @@ async function startQuiz() {
   quizData     = null;
   quizAnswered = false;
 
-  // ★ 先読みキャッシュがあれば即表示(reset前にチェック!ここが重要)
+  // ★ 先読みキャッシュがあれば即表示
   if (nextQuizData) {
     quizData = nextQuizData;
     nextQuizData = null;
     prefetching  = false;
     loading.classList.remove('show');
     renderQuiz();
-    prefetchNextQuiz();  // 次の問題を裏で生成開始
+    prefetchNextQuiz();
     return;
   }
 
@@ -798,9 +810,12 @@ async function startQuiz() {
     return;
   }
 
-  // 応答が途中で切れた場合の専用エラー(パースしても失敗するので事前に検知)
+  // 応答が途中で切れた場合の専用エラー
   if (result.stopReason === 'max_tokens') {
-    body.innerHTML = `<div class="error">AI応答がトークン制限で途中で切れました。(max_tokens=${QUIZ_MAX_TOKENS})<br>再試行すると通ることが多いです。頻発する場合はmax_tokensを増やしてください。</div>
+    const u = result.usage || {};
+    body.innerHTML = `<div class="error">AI応答がトークン制限で途中で切れました。
+      <small>stop_reason: max_tokens / output_tokens: ${u.output_tokens || '?'} / limit: ${QUIZ_MAX_TOKENS}</small>
+      <small>再試行すると通ることが多いです。</small></div>
       <button class="btn-next show" onclick="startQuiz()" style="margin-top:8px">再試行</button>`;
     return;
   }
@@ -808,10 +823,15 @@ async function startQuiz() {
   try {
     quizData = parseQuizJson(result.text);
     renderQuiz();
-    prefetchNextQuiz();  // 次の問題を裏で生成開始
+    prefetchNextQuiz();
   } catch (e) {
-    console.error('[parseQuizJson]', e, result.text);
-    body.innerHTML = `<div class="error">問題の解析に失敗しました。再試行してください。<br><small>${esc(e.message)}</small><br><small style="opacity:0.7">${esc(result.text.substring(0,300))}</small></div>
+    console.error('[parseQuizJson]', e);
+    console.error('[raw text]', result.text);
+    const u = result.usage || {};
+    body.innerHTML = `<div class="error">問題の解析に失敗しました。再試行してください。
+      <small>エラー: ${esc(e.message)}</small>
+      <small>stop_reason: ${esc(result.stopReason || '?')} / output_tokens: ${u.output_tokens || '?'}</small>
+      <pre>${esc(result.text.substring(0,500))}</pre></div>
       <button class="btn-next show" onclick="startQuiz()" style="margin-top:8px">再試行</button>`;
   }
 }
@@ -953,7 +973,6 @@ async function sendFree() {
   section.appendChild(spinner);
   section.scrollTop = section.scrollHeight;
 
-  // 自由質問は教材非依存(キャッシュ対象外でOK・シンプルに文字列system)
   const result = await callAI({
     system:    SYSTEM,
     messages:  [{ role: 'user', content: q + '(日本語で説明し、英語訳は括弧書きで添えてください)' }],
@@ -1000,7 +1019,7 @@ function renderMd(text) {
 if (!gasUrl) {
   setTimeout(openSettings, 400);
 } else {
-  loadExplain();  // この中で fetchContext(currentTopic) も呼ばれるので、起動時一括先読みは不要
+  loadExplain();
 }
 </script>
 </body>
