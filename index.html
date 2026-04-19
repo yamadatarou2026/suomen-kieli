@@ -187,8 +187,8 @@ body {
   border-bottom: 0.5px solid var(--border);
 }
 
-.quiz-q    { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
-.quiz-hint { font-size: 12px; color: var(--text3); margin-bottom: 12px; }
+.quiz-q    { font-size: 14px; font-weight: 500; margin-bottom: 12px; }
+.quiz-hint { font-size: 12px; color: var(--text3); margin-bottom: 12px; font-style: italic; }
 .options   { display: flex; flex-direction: column; gap: 6px; }
 .option {
   text-align: left;
@@ -286,7 +286,7 @@ body {
   border-radius: var(--r);
   line-height: 1.6;
 }
-.error small { display: block; margin-top: 6px; opacity: 0.85; }
+.error small { display: block; margin-top: 6px; opacity: 0.85; font-size: 11px; }
 .error pre {
   background: rgba(0,0,0,0.1);
   padding: 6px 8px;
@@ -297,6 +297,14 @@ body {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-all;
+}
+.error-hint {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: rgba(0,0,0,0.1);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .bottom-bar {
@@ -471,12 +479,14 @@ const ctxCache    = {};
 let   nextQuizData = null;
 let   prefetching  = false;
 
-// ★ 多様性改善: 最近出題した単語/問題をトピック別に記録(各トピック最大10件)
-const recentWordsByTopic = {};  // { "感情表現 (Tunteet)": ["harmittaa", "siivoa", ...] }
+const recentWordsByTopic = {};
 const RECENT_WORDS_LIMIT = 10;
 
 const QUIZ_MAX_TOKENS    = 2500;
 const EXPLAIN_MAX_TOKENS = 900;
+
+// ★ タイムアウト設定: スマホでGASが遅い時の対策
+const FETCH_TIMEOUT_MS = 45000;  // 45秒
 
 // ═══════════════════════════════════════════════════════════
 //  SYSTEM PROMPT
@@ -523,14 +533,34 @@ function saveSettings() {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  API CALL
+//  FETCH WITH TIMEOUT (タイムアウト対応)
+// ═══════════════════════════════════════════════════════════
+async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timeoutId);
+    return res;
+  } catch (e) {
+    clearTimeout(timeoutId);
+    if (e.name === 'AbortError') {
+      throw new Error(`タイムアウト(${timeoutMs/1000}秒)`);
+    }
+    throw e;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  API CALL (詳細エラー表示対応)
 // ═══════════════════════════════════════════════════════════
 async function callAI(opts) {
   if (!gasUrl) {
-    return { error: 'GAS URLが未設定です。右上の「設定」からURLを入力してください。' };
+    return { error: 'GAS URLが未設定です。右上の「設定」からURLを入力してください。', errorType: 'no_url' };
   }
   try {
-    const res = await fetch(gasUrl, {
+    const startTime = Date.now();
+    const res = await fetchWithTimeout(gasUrl, {
       method:  'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body:    JSON.stringify({
@@ -540,9 +570,31 @@ async function callAI(opts) {
         maxTokens: opts.maxTokens || 900
       }),
     });
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`[fetch完了] ${elapsed}秒 / status=${res.status}`);
+
+    // HTTPステータスエラーの詳細表示
+    if (!res.ok) {
+      const bodyText = await res.text().catch(() => '(本文取得失敗)');
+      return {
+        error: `GAS応答エラー: HTTP ${res.status} ${res.statusText}`,
+        errorDetail: bodyText.substring(0, 300),
+        errorType: 'http_error'
+      };
+    }
+
     const data = await res.json();
-    if (data.error) return { error: typeof data.error === 'string' ? data.error : JSON.stringify(data.error) };
-    if (!data.content || !data.content[0]) return { error: 'AIからの応答が空です' };
+    if (data.error) {
+      // AI側のエラー(レート制限など)
+      const errMsg = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+      let errorType = 'ai_error';
+      if (errMsg.includes('rate_limit')) errorType = 'rate_limit';
+      if (errMsg.includes('overloaded')) errorType = 'overloaded';
+      return { error: errMsg, errorType };
+    }
+    if (!data.content || !data.content[0]) {
+      return { error: 'AIからの応答が空です', errorType: 'empty_response' };
+    }
     if (data.usage)       console.log('[usage]', data.usage);
     if (data.stop_reason) console.log('[stop_reason]', data.stop_reason);
     return {
@@ -551,8 +603,53 @@ async function callAI(opts) {
       stopReason: data.stop_reason
     };
   } catch (e) {
-    return { error: 'GASへの接続に失敗しました: ' + e.message };
+    // ネットワークエラー/タイムアウトの詳細表示
+    let errorType = 'network_error';
+    let errorMsg = e.message;
+    if (e.message.includes('タイムアウト')) {
+      errorType = 'timeout';
+    } else if (e.message.includes('Failed to fetch')) {
+      errorMsg = 'ネットワーク接続に失敗。Wi-Fi/モバイルデータを確認してください';
+      errorType = 'network_error';
+    }
+    return { error: errorMsg, errorType };
   }
+}
+
+// エラー表示HTML生成
+function formatErrorHtml(result) {
+  const type = result.errorType || 'unknown';
+  let hint = '';
+  switch (type) {
+    case 'timeout':
+      hint = '【原因】GASの応答が45秒以内に返ってこなかった。<br>【対処】1分ほど待って再試行してください。頻繁に起きる場合は電波状況を確認。';
+      break;
+    case 'network_error':
+      hint = '【原因】スマホとインターネットの接続が不安定。<br>【対処】Wi-Fiまたはモバイルデータを確認して再試行してください。';
+      break;
+    case 'http_error':
+      hint = '【原因】GASサーバーからエラー応答。<br>【対処】GASのクォータ超過、またはデプロイの問題の可能性。Apps Scriptで「実行数」を確認してください。';
+      break;
+    case 'rate_limit':
+      hint = '【原因】Anthropic APIのレート制限に到達。<br>【対処】1〜2分待って再試行してください。';
+      break;
+    case 'overloaded':
+      hint = '【原因】Anthropic側のサーバーが混雑中。<br>【対処】30秒ほど待って再試行してください。';
+      break;
+    case 'empty_response':
+      hint = '【原因】AIから空の応答。プロンプトの問題の可能性。';
+      break;
+  }
+
+  let html = `<div class="error"><strong>${esc(result.error)}</strong>`;
+  if (result.errorDetail) {
+    html += `<small>詳細: ${esc(result.errorDetail)}</small>`;
+  }
+  if (hint) {
+    html += `<div class="error-hint">${hint}</div>`;
+  }
+  html += `<small>エラー種別: ${esc(type)}</small></div>`;
+  return html;
 }
 
 function buildSystem(nlmContext, jsonMode) {
@@ -586,7 +683,7 @@ async function saveRecord(record) {
 async function fetchHistory() {
   if (!gasUrl) return null;
   try {
-    const res  = await fetch(gasUrl + '?action=history');
+    const res  = await fetchWithTimeout(gasUrl + '?action=history', {}, 15000);
     const data = await res.json();
     return data.rows || [];
   } catch { return null; }
@@ -596,7 +693,7 @@ async function fetchContext(topic) {
   if (ctxCache[topic] !== undefined) return ctxCache[topic];
   if (!gasUrl) return '';
   try {
-    const res  = await fetch(gasUrl + '?action=context&topic=' + encodeURIComponent(topic));
+    const res  = await fetchWithTimeout(gasUrl + '?action=context&topic=' + encodeURIComponent(topic), {}, 15000);
     const data = await res.json();
     ctxCache[topic] = data.context || '';
     return ctxCache[topic];
@@ -676,20 +773,18 @@ async function loadExplain() {
   loading.classList.remove('show');
 
   if (result.error) {
-    body.innerHTML = `<div class="error">${esc(result.error)}</div>`;
+    body.innerHTML = formatErrorHtml(result);
   } else {
     body.innerHTML = `<div class="card"><div class="ai-text">${renderMd(result.text)}</div></div>`;
   }
 }
 
 // ═══════════════════════════════════════════════════════════
-//  QUIZ MODE (多様性改善版)
+//  QUIZ MODE (ネタバレ防止版)
 // ═══════════════════════════════════════════════════════════
 function buildQuizPrompt() {
-  // ★ ランダムシード: プロンプトを毎回ユニークにしてAIの出力を多様化
   const seed = Math.floor(Math.random() * 100000);
 
-  // ★ 最近出した単語リスト: AIに避けさせる
   const recent = recentWordsByTopic[currentTopic] || [];
   const avoidInstruction = recent.length > 0
     ? `\n\n【重要】次の単語や問題パターンは直近で出題したため、必ず避けてください:\n${recent.join(', ')}\n上記以外の単語・構文・パターンから選んでください。`
@@ -699,16 +794,24 @@ function buildQuizPrompt() {
 毎回必ず異なる単語・構文・問題タイプを選んで、学習者が幅広く練習できるようにしてください。${avoidInstruction}
 
 【厳守すべき出力制約】
-- question: 1〜2文で簡潔に。長いヒントや背景説明は入れない(目安60字以内)
-- fi_word: 対象となる基本形の1語のみ
+- question: 問題文を1〜2文で簡潔に(60字以内)。問題に必要な情報(活用させる元の語など)はすべてquestion本文に含めること
+- hint_jp: 答えを絶対に示さない、日本語のヒント(カテゴリ名・文法タイプなど)。例:「ネガティブな感情を表す動詞」「タイプ1の過去形」「分格の語尾」。正解語の一部や訳語を絶対に含めない。不要なら空文字列でよい
 - options: ちょうど3つ。うち1つだけ correct: true
-- 各 reason: 日本語で80〜120字程度に収める。専門用語は日本語(English)形式。全文の英訳は不要
+- 各 reason: 日本語で80〜120字。専門用語は日本語(English)形式。英訳は不要
 - JSON の文字列値の中で ASCII の二重引用符 (") を使わないこと。引用したい場合は 「」 を使う
+
+【ネタバレ禁止の鉄則】
+hint_jp や question に、正解の単語の綴りの一部・日本語訳・英訳を書いてはいけません。
+例: 正解が「raha」なら、hint_jpに「お金を表す語」「r で始まる」など書いてはダメ。
+代わりに「日常生活で使う基本語彙」「名詞の所有構文」のように抽象的に書く。
+
+【課題の基本形を示したい場合】
+格変化クイズなどで「talo を格変化させなさい」のように元の語を示したい場合は、question本文に直接含めてください(例:「『talo』の入格は？」)。hint_jpには書かないこと。
 
 以下のJSON形式のみで回答(コードブロック不要):
 {
-  "question": "簡潔な問題文",
-  "fi_word": "対象の基本形",
+  "question": "簡潔な問題文(元の語があればここに含める)",
+  "hint_jp": "答えを示さない日本語ヒント or 空文字列",
   "options": [
     {"text": "選択肢(フィンランド語)", "correct": false, "reason": "〜を選んだということは〜と考えた可能性があります。正しくは〜"},
     {"text": "正解", "correct": true, "reason": "〜が正解。理由は〜。覚え方は〜"},
@@ -717,16 +820,20 @@ function buildQuizPrompt() {
 }`;
 }
 
-// ★ 出題済み単語を記録(トピック別に最大10件)
+// ★ 出題単語を後追いで判定(正解の text を記録)
+function extractCorrectText(data) {
+  if (!data || !data.options) return '';
+  const correct = data.options.find(o => o.correct === true);
+  return correct ? (correct.text || '').trim() : '';
+}
+
 function recordRecentWord(topic, word) {
   if (!word) return;
   if (!recentWordsByTopic[topic]) recentWordsByTopic[topic] = [];
   const list = recentWordsByTopic[topic];
-  // 重複排除
   const idx = list.indexOf(word);
   if (idx >= 0) list.splice(idx, 1);
   list.push(word);
-  // 上限超えたら古いものから削除
   while (list.length > RECENT_WORDS_LIMIT) list.shift();
 }
 
@@ -763,8 +870,7 @@ async function startQuiz() {
     nextQuizData = null;
     prefetching  = false;
     loading.classList.remove('show');
-    // ★ 出題した単語を記録
-    recordRecentWord(currentTopic, quizData.fi_word);
+    recordRecentWord(currentTopic, extractCorrectText(quizData));
     renderQuiz();
     prefetchNextQuiz();
     return;
@@ -782,8 +888,8 @@ async function startQuiz() {
   loading.classList.remove('show');
 
   if (result.error) {
-    body.innerHTML = `<div class="error">${esc(result.error)}</div>
-      <button class="btn-next show" onclick="startQuiz()" style="margin-top:8px">再試行</button>`;
+    body.innerHTML = formatErrorHtml(result) +
+      `<button class="btn-next show" onclick="startQuiz()" style="margin-top:8px">再試行</button>`;
     return;
   }
 
@@ -798,8 +904,7 @@ async function startQuiz() {
 
   try {
     quizData = parseQuizJson(result.text);
-    // ★ 出題した単語を記録
-    recordRecentWord(currentTopic, quizData.fi_word);
+    recordRecentWord(currentTopic, extractCorrectText(quizData));
     renderQuiz();
     prefetchNextQuiz();
   } catch (e) {
@@ -829,9 +934,13 @@ function renderQuiz() {
       onclick="answerQuiz(this)">${esc(opt.text)}</button>`;
   });
 
+  // ヒント: hint_jp を表示(fi_wordは廃止でネタバレ防止)
+  const hintText = (quizData.hint_jp || '').trim();
+  const hintHtml = hintText ? `<div class="quiz-hint">💡 ${esc(hintText)}</div>` : '';
+
   body.innerHTML = `<div class="card">
     <div class="quiz-q">${esc(quizData.question)}</div>
-    <div class="quiz-hint">${esc(quizData.fi_word || '')}</div>
+    ${hintHtml}
     <div class="options">${optsHtml}</div>
     <div class="feedback" id="qfb"></div>
     <button class="btn-next" id="qnext" onclick="startQuiz()">次の問題 →</button>
@@ -957,7 +1066,7 @@ async function sendFree() {
   box.className = 'card';
   box.style.borderLeft = '2px solid var(--green)';
   box.innerHTML = result.error
-    ? `<div class="error">${esc(result.error)}</div>`
+    ? formatErrorHtml(result)
     : `<div class="ai-text">${renderMd(result.text)}</div>`;
   section.appendChild(box);
   box.scrollIntoView({ behavior: 'smooth', block: 'start' });
