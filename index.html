@@ -795,23 +795,30 @@ function buildQuizPrompt() {
 
 【厳守すべき出力制約】
 - question: 問題文を1〜2文で簡潔に(60字以内)。問題に必要な情報(活用させる元の語など)はすべてquestion本文に含めること
-- hint_jp: 答えを絶対に示さない、日本語のヒント(カテゴリ名・文法タイプなど)。例:「ネガティブな感情を表す動詞」「タイプ1の過去形」「分格の語尾」。正解語の一部や訳語を絶対に含めない。不要なら空文字列でよい
+- hint_jp: **答えを絶対に示さない、日本語だけのヒント**。正解語の綴り・語幹・訳語を絶対に含めない。ヒント不要なら必ず空文字列 "" にすること
 - options: ちょうど3つ。うち1つだけ correct: true
 - 各 reason: 日本語で80〜120字。専門用語は日本語(English)形式。英訳は不要
 - JSON の文字列値の中で ASCII の二重引用符 (") を使わないこと。引用したい場合は 「」 を使う
 
-【ネタバレ禁止の鉄則】
-hint_jp や question に、正解の単語の綴りの一部・日本語訳・英訳を書いてはいけません。
-例: 正解が「raha」なら、hint_jpに「お金を表す語」「r で始まる」など書いてはダメ。
-代わりに「日常生活で使う基本語彙」「名詞の所有構文」のように抽象的に書く。
+【hint_jp の絶対ルール】
+❌ 悪い例1: 正解が "oksettaa" で hint_jp が "oksettaa" ← そのまま書いてある
+❌ 悪い例2: 正解が "raha" で hint_jp が "お金を表す語" ← 訳語が書いてある
+❌ 悪い例3: 正解が "pelottaa" で hint_jp が "pel で始まる感情動詞" ← 綴りの一部がある
+❌ 悪い例4: 正解が "oksettaa" で hint_jp が "吐き気系の動詞" ← 訳語由来の手がかりがある
+✅ 良い例1: hint_jp = "" (空文字列。ヒント不要なら必ず空で)
+✅ 良い例2: hint_jp = "生理的反応を表す動詞" (抽象的なカテゴリのみ)
+✅ 良い例3: hint_jp = "タイプ1の過去形" (文法タイプのみ)
+✅ 良い例4: hint_jp = "名詞の所有構文で使う語" (構文情報のみ)
+
+迷ったら hint_jp は必ず空文字列 "" にすること。
 
 【課題の基本形を示したい場合】
-格変化クイズなどで「talo を格変化させなさい」のように元の語を示したい場合は、question本文に直接含めてください(例:「『talo』の入格は？」)。hint_jpには書かないこと。
+格変化クイズで「talo を格変化させなさい」のように元の語を示したい場合は、question本文に直接含めてください(例:「『talo』の入格は？」)。hint_jpには書かないこと。
 
 以下のJSON形式のみで回答(コードブロック不要):
 {
   "question": "簡潔な問題文(元の語があればここに含める)",
-  "hint_jp": "答えを示さない日本語ヒント or 空文字列",
+  "hint_jp": "",
   "options": [
     {"text": "選択肢(フィンランド語)", "correct": false, "reason": "〜を選んだということは〜と考えた可能性があります。正しくは〜"},
     {"text": "正解", "correct": true, "reason": "〜が正解。理由は〜。覚え方は〜"},
@@ -919,6 +926,32 @@ async function startQuiz() {
   }
 }
 
+// ★ ネタバレチェッカー: ヒント文が選択肢の単語を含んでいたら非表示にする
+function sanitizeHint(hint, options) {
+  if (!hint) return '';
+  const hintLower = hint.toLowerCase();
+  // 各選択肢のテキストをチェック
+  for (const opt of options) {
+    const optText = (opt.text || '').toLowerCase().trim();
+    if (!optText) continue;
+    // 選択肢の語がそのままヒントに含まれていたらブロック
+    // 3文字以上の場合のみチェック(短すぎると偶然一致する)
+    if (optText.length >= 3 && hintLower.includes(optText)) {
+      console.warn('[hint blocked] 選択肢の語「' + opt.text + '」がヒントに含まれていました:', hint);
+      return '';
+    }
+    // 選択肢の語幹(最初の4文字)が含まれていたらブロック
+    if (optText.length >= 5) {
+      const stem = optText.substring(0, optText.length - 2);  // 末尾2文字除く
+      if (stem.length >= 4 && hintLower.includes(stem)) {
+        console.warn('[hint blocked] 選択肢の語幹「' + stem + '」がヒントに含まれていました:', hint);
+        return '';
+      }
+    }
+  }
+  return hint;
+}
+
 function renderQuiz() {
   if (!quizData) return;
   const body = document.getElementById('quiz-body');
@@ -934,8 +967,9 @@ function renderQuiz() {
       onclick="answerQuiz(this)">${esc(opt.text)}</button>`;
   });
 
-  // ヒント: hint_jp を表示(fi_wordは廃止でネタバレ防止)
-  const hintText = (quizData.hint_jp || '').trim();
+  // ヒント: hint_jp を表示(ネタバレしてたら自動ブロック)
+  const rawHint = (quizData.hint_jp || '').trim();
+  const hintText = sanitizeHint(rawHint, quizData.options);
   const hintHtml = hintText ? `<div class="quiz-hint">💡 ${esc(hintText)}</div>` : '';
 
   body.innerHTML = `<div class="card">
